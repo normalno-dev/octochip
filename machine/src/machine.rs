@@ -1,12 +1,17 @@
+use std::time::Duration;
+
 use crate::display::Display;
 use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
-use crate::machine::quircks::Quircks;
+use crate::platform::{ExecutionMode, Platform};
 use crate::{error::Error, memory::Memory};
 use rand::rngs::SmallRng;
 use rand::{Rng, RngCore, SeedableRng};
 
 type Result<T> = std::result::Result<T, Error>;
+
+pub mod config;
+pub mod quircks;
 
 mod ops_alu;
 mod ops_control;
@@ -14,14 +19,13 @@ mod ops_io;
 mod ops_memory;
 mod ops_register;
 mod ops_system;
-mod quircks;
 
 mod debug;
 
 pub struct Machine {
     memory: Memory,
     display: Display,
-    quircks: Quircks,
+    config: config::Config,
 
     registers: [u8; 16], // V0 to FF registers
     stack: [u16; 16],
@@ -33,14 +37,21 @@ pub struct Machine {
 
     keys: Keyboard,
     rng: SmallRng,
+
+    last_frame_time: Duration,
+    timer_period: Duration,
+    timer_accumulator: Duration,
 }
 
 impl Machine {
     pub fn new() -> Self {
+        let cfg = config::Config::default();
         Self {
             memory: Memory::new(),
             display: Display::new(),
-            quircks: Quircks::default(),
+            config: config::Config::default(),
+            keys: Keyboard::new(),
+
             registers: [0; 16],
             stack: [0; 16],
             pc: 0,
@@ -48,8 +59,11 @@ impl Machine {
             dt: 0,
             st: 0,
             index: 0,
-            keys: Keyboard::new(),
+
             rng: SmallRng::from_rng(&mut rand::rng()),
+            last_frame_time: Duration::new(0, 0),
+            timer_period: Duration::from_millis(1000 / cfg.timer_frequency as u64),
+            timer_accumulator: Duration::new(0, 0),
         }
     }
 
@@ -58,6 +72,13 @@ impl Machine {
     pub fn with_seed(seed: u64) -> Self {
         let mut machine = Self::new();
         machine.rng = SmallRng::seed_from_u64(seed);
+        machine
+    }
+
+    pub fn with_config(cfg: config::Config) -> Self {
+        let mut machine = Self::new();
+        machine.timer_period = Duration::from_millis(1000 / cfg.timer_frequency as u64);
+        machine.config = cfg;
         machine
     }
 
@@ -74,6 +95,40 @@ impl Machine {
         self.pc = 0;
         self.sp = 0;
         self.index = 0;
+        self.timer_accumulator = Duration::new(0, 0);
+        self.last_frame_time = Duration::new(0, 0);
+    }
+
+    pub fn run_frame<P: Platform>(
+        &mut self,
+        platform: &mut P,
+    ) -> std::result::Result<bool, P::Error> {
+        let mode = platform.get_execution_mode();
+        let frame_start = platform.get_time();
+
+        self.keys = platform.get_keys();
+
+        let instructions_to_run = match mode {
+            ExecutionMode::Paused => 0,
+            ExecutionMode::Step => 1,
+            ExecutionMode::Running => self.calculate_instructions_for_frame(frame_start),
+        };
+
+        for _ in 0..instructions_to_run {
+            if !self.step()? {
+                return Ok(false);
+            }
+        }
+
+        if matches!(mode, ExecutionMode::Running) {
+            let delta = platform.get_time() - frame_start;
+            self.update_timers(delta);
+        }
+
+        platform.draw_display(&self.display)?;
+        platform.play_sound(self.st > 0)?;
+
+        Ok(true)
     }
 
     pub fn step(&mut self) -> Result<bool> {
@@ -106,6 +161,32 @@ impl Machine {
             self.memory.write_word(addr, word)?;
         }
         Ok(())
+    }
+
+    fn calculate_instructions_for_frame(&mut self, current_time: Duration) -> u32 {
+        let delta = current_time - self.last_frame_time;
+        let expected_instructions = self.config.cpu_frequency as f64 * delta.as_secs_f64();
+
+        self.last_frame_time = current_time;
+        expected_instructions.round() as u32
+    }
+
+    fn update_timers(&mut self, delta: Duration) {
+        self.timer_accumulator += delta;
+
+        if self.timer_accumulator < self.timer_period {
+            return;
+        }
+
+        if self.dt > 0 {
+            self.dt -= 1;
+        }
+
+        if self.st > 0 {
+            self.st -= 1;
+        }
+
+        self.timer_accumulator -= self.timer_period;
     }
 }
 

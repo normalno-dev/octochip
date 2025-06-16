@@ -55,7 +55,7 @@ impl Machine {
     }
 
     pub(super) fn op_shift_right(&mut self, vx: u8, vy: u8) -> Result<()> {
-        if self.quircks.shift {
+        if self.config.quircks.shift {
             self.registers[0xF] = self.registers[vx as usize] & 0x01;
             self.registers[vx as usize] >>= 1;
         } else {
@@ -67,7 +67,7 @@ impl Machine {
     }
 
     pub(super) fn op_shift_left(&mut self, vx: u8, vy: u8) -> Result<()> {
-        if self.quircks.shift {
+        if self.config.quircks.shift {
             self.registers[0xF] = (self.registers[vx as usize] & 0x80) >> 7;
             self.registers[vx as usize] <<= 1;
         } else {

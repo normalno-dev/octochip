@@ -4,6 +4,7 @@ mod instruction;
 mod keyboard;
 mod machine;
 mod memory;
+mod platform;
 mod program;
 
 #[cfg(test)]
