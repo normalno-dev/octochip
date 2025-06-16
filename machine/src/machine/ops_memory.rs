@@ -26,7 +26,7 @@ impl Machine {
     }
 
     pub(super) fn op_store_registers(&mut self, x: u8) -> Result<()> {
-        for i in 0..x {
+        for i in 0..=x {
             let value = self.registers[i as usize];
             let addr = self.index + i as u16;
             self.memory.write(addr, value)?;
@@ -36,7 +36,7 @@ impl Machine {
     }
 
     pub(super) fn op_load_registers(&mut self, x: u8) -> Result<()> {
-        for i in 0..x {
+        for i in 0..=x {
             let addr = self.index + i as u16;
             let value = self.memory.read(addr)?;
             self.registers[i as usize] = value;
