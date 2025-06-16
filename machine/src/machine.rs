@@ -3,6 +3,8 @@ use crate::instruction::Instruction;
 use crate::keyboard::Keyboard;
 use crate::machine::quircks::Quircks;
 use crate::{error::Error, memory::Memory};
+use rand::rngs::SmallRng;
+use rand::{Rng, RngCore, SeedableRng};
 
 type Result<T> = std::result::Result<T, Error>;
 
@@ -30,6 +32,7 @@ pub struct Machine {
     index: u16, // index register (I)
 
     keys: Keyboard,
+    rng: SmallRng,
 }
 
 impl Machine {
@@ -46,9 +49,20 @@ impl Machine {
             st: 0,
             index: 0,
             keys: Keyboard::new(),
+            rng: SmallRng::from_rng(&mut rand::rng()),
         }
     }
 
+    // with_seed creates Machine and sets a random generator seed
+    // for predictable and determenistic testing
+    pub fn with_seed(seed: u64) -> Self {
+        let mut machine = Self::new();
+        machine.rng = SmallRng::seed_from_u64(seed);
+        machine
+    }
+
+    // reset display buffer, memory, keyboard input, registers, stack, timers,
+    // index register. it does not reset random generator.
     pub fn reset(&mut self) {
         self.memory = Memory::new();
         self.keys.clear_all_keys();
@@ -134,22 +148,33 @@ impl Machine {
         use Instruction::*;
 
         match instruction {
+            // system operations
             Clear => self.op_clear(),
-            Return => self.op_return(),
             Syscall(addr) => self.op_syscall(addr),
+            Rnd { vx, kk } => self.op_rnd(vx, kk),
+            SetDelayTimer(vx) => self.op_set_delay_timer(vx),
+            SetSoundTimer(vx) => self.op_set_sound_timer(vx),
+            LoadDelayTimer(vx) => self.op_load_delay_timer(vx),
 
+            // flow control operations
             Jump(addr) => self.op_jump(addr),
+            JumpOffset(nnn) => self.op_jump_offset(nnn),
             Call(addr) => self.op_call(addr),
+            Return => self.op_return(),
+
+            // branch operations
             SkipIfEqualImm { vx, kk } => self.op_skip_if_equal_imm(vx, kk),
             SkipIfNotEqualImm { vx, kk } => self.op_skip_if_not_equal_imm(vx, kk),
             SkipIfEqual { vx, vy } => self.op_skip_if_equal(vx, vy),
             SkipIfNotEqual { vx, vy } => self.op_skip_if_not_equal(vx, vy),
 
+            // register operations
             SetImmediate { vx, kk } => self.op_set_immediate(vx, kk),
             Set { vx, vy } => self.op_set(vx, vy),
             SetIndex(addr) => self.op_set_index(addr),
             AddIndex(x) => self.op_add_index(x),
 
+            // ALU operaitions
             AddImmediate { vx, kk } => self.op_add_immediate(vx, kk),
             Or { vx, vy } => self.op_or(vx, vy),
             And { vx, vy } => self.op_and(vx, vy),
@@ -160,10 +185,17 @@ impl Machine {
             ShiftRight { vx, vy } => self.op_shift_right(vx, vy),
             ShiftLeft { vx, vy } => self.op_shift_left(vx, vy),
 
-            LoadFont(vx) => self.op_load_font(vx),
+            // IO operaitions
+            SkipIfKey(vx) => self.op_skip_if_key(vx),
+            SkipIfNotKey(vx) => self.op_skip_if_not_key(vx),
+            WaitForKey(vx) => self.op_wait_for_key(vx),
             Draw { vx, vy, n } => self.op_draw(vx, vy, n),
 
-            _ => return Err(Error::NotImplementedYet(instruction)),
+            // memory operations
+            StoreBcd(vx) => self.op_store_bcd(vx),
+            StoreRegisters(x) => self.op_store_registers(x),
+            LoadRegisters(x) => self.op_load_registers(x),
+            LoadFont(vx) => self.op_load_font(vx),
         }
     }
 }
