@@ -34,7 +34,7 @@ impl Keyboard {
         }
 
         if pressed {
-            self.0 != 1 << key;
+            self.0 |= 1 << key;
         } else {
             self.0 &= !(1 << key);
         }
